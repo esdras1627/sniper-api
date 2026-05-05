@@ -1,78 +1,107 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import sqlite3
-from datetime import datetime
+import time, uuid
 
 app = FastAPI()
 
-# =========================
-# BANCO
-# =========================
-conn = sqlite3.connect("licencas.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS licencas (
-    chave TEXT PRIMARY KEY,
-    expira TEXT,
-    maquina TEXT
-)
-""")
-conn.commit()
+trials = {}
+licenses = {}
+payments = {}
 
 # =========================
-# MODELO
+# MODELOS
 # =========================
-class Licenca(BaseModel):
-    chave: str
-    maquina: str
+class Trial(BaseModel):
+    machine: str
+
+class Payment(BaseModel):
+    email: str
+
+class Validate(BaseModel):
+    key: str
+    machine: str
 
 # =========================
-# VALIDAR
+# HOME
 # =========================
-@app.post("/validar")
-def validar(licenca: Licenca):
+@app.get("/")
+def home():
+    return {"status": "online"}
 
-    cursor.execute("SELECT * FROM licencas WHERE chave=?", (licenca.chave,))
-    dados = cursor.fetchone()
+# =========================
+# TESTE 1H
+# =========================
+@app.post("/trial")
+def trial(data: Trial):
+    now = time.time()
 
-    if not dados:
-        return {"status": "invalida"}
+    if data.machine not in trials:
+        trials[data.machine] = now
+        return {"status": "active", "restante": 3600}
 
-    chave, expira, maquina = dados
+    inicio = trials[data.machine]
 
-    # expiração
-    if datetime.now() > datetime.strptime(expira, "%Y-%m-%d"):
-        return {"status": "expirada"}
+    if now - inicio <= 3600:
+        restante = int(3600 - (now - inicio))
+        return {"status": "active", "restante": restante}
 
-    # vincular máquina
-    if maquina == "":
-        cursor.execute("UPDATE licencas SET maquina=? WHERE chave=?", (licenca.maquina, chave))
-        conn.commit()
+    return {"status": "expired"}
+
+# =========================
+# CRIAR PAGAMENTO (SIMULADO)
+# =========================
+@app.post("/create-payment")
+def create_payment(data: Payment):
+    payments[data.email] = {"status": "pending"}
+
+    return {
+        "payment_url": "https://google.com",  # troca depois
+        "status": "pending"
+    }
+
+# =========================
+# SIMULAR PAGAMENTO (TESTE)
+# =========================
+@app.get("/approve/{email}")
+def approve(email: str):
+    payments[email] = {"status": "paid"}
+    return {"status": "aprovado"}
+
+# =========================
+# VERIFICAR PAGAMENTO
+# =========================
+@app.post("/check-payment")
+def check_payment(data: Payment):
+
+    if payments.get(data.email, {}).get("status") == "paid":
+
+        key = str(uuid.uuid4())[:10].upper()
+
+        licenses[key] = {
+            "machine": None,
+            "active": True
+        }
+
+        return {"status": "paid", "key": key}
+
+    return {"status": "pending"}
+
+# =========================
+# VALIDAR LICENÇA
+# =========================
+@app.post("/license/validate")
+def validate(data: Validate):
+
+    lic = licenses.get(data.key)
+
+    if not lic:
+        return {"status": "invalid"}
+
+    if lic["machine"] is None:
+        lic["machine"] = data.machine
         return {"status": "ok"}
 
-    elif maquina != licenca.maquina:
-        return {"status": "bloqueado"}
+    if lic["machine"] != data.machine:
+        return {"status": "blocked"}
 
     return {"status": "ok"}
-
-# =========================
-# CRIAR LICENÇA (ADMIN)
-# =========================
-@app.post("/criar")
-def criar(chave: str, expira: str):
-    try:
-        cursor.execute("INSERT INTO licencas VALUES (?, ?, '')", (chave, expira))
-        conn.commit()
-        return {"status": "criada"}
-    except:
-        return {"status": "erro"}
-
-# =========================
-# LISTAR (ADMIN)
-# =========================
-@app.get("/listar")
-def listar():
-    cursor.execute("SELECT * FROM licencas")
-    dados = cursor.fetchall()
-    return {"licencas": dados}
