@@ -3,76 +3,53 @@ import time
 import uuid
 import webbrowser
 
-API = "https://sniper-api-kypc.onrender.com"  # sua URL
+API = "https://sniper-api-kypc.onrender.com"
 
 maquina = str(uuid.getnode())
 
-# =========================
-# TESTE 1H
-# =========================
-resp = requests.post(API + "/trial", json={
+# TESTE
+trial = requests.post(API + "/trial", json={
     "machine": maquina
-})
+}).json()
 
-data = resp.json()
-
-if data.get("status") == "active":
-    print(f"🟢 Teste ativo ({data['restante']}s restantes)")
+if trial.get("status") == "active":
+    print("🟢 Teste ativo")
 
 else:
-    print("🔒 Teste expirado!")
+    print("🔒 Teste expirado")
 
-    print("1 - Comprar acesso")
-    print("2 - Inserir licença")
+    email = input("Digite seu email: ")
 
-    op = input("Escolha: ")
+    pagamento = requests.post(API + "/create-payment", json={
+        "email": email
+    }).json()
 
-    if op == "1":
-        email = input("Digite seu email: ")
+    print("💰 Abra o link:")
+    print(pagamento["payment_url"])
 
-        resp = requests.post(API + "/create-payment", json={
+    webbrowser.open(pagamento["payment_url"])
+
+    print("⏳ Aguardando pagamento automático...")
+
+    while True:
+        check = requests.post(API + "/check-payment", json={
             "email": email
         }).json()
 
-        print("💰 Abra o link:")
-        print(resp["payment_url"])
+        if check["status"] == "paid":
 
-        webbrowser.open(resp["payment_url"])
+            key = check["key"]
 
-        print("\n⚠️ PARA TESTE:")
-        print(f"Acesse: {API}/approve/{email}")
-
-        print("⏳ Aguardando pagamento...")
-
-        while True:
-            check = requests.post(API + "/check-payment", json={
-                "email": email
+            valid = requests.post(API + "/license/validate", json={
+                "key": key,
+                "machine": maquina
             }).json()
 
-            if check["status"] == "paid":
-                licenca = check["key"]
-                print("✅ Pago!")
-                print("🔑 Licença:", licenca)
+            if valid["status"] == "ok":
+                print("✅ Acesso liberado automaticamente!")
                 break
 
-            time.sleep(5)
+        time.sleep(5)
 
-    else:
-        licenca = input("🔑 Licença: ")
-
-    # VALIDAR
-    resp = requests.post(API + "/license/validate", json={
-        "key": licenca,
-        "machine": maquina
-    }).json()
-
-    if resp["status"] != "ok":
-        print("❌ Licença inválida")
-        exit()
-
-    print("✅ Acesso liberado!")
-
-# =========================
-# AQUI ENTRA SEU ROBÔ REAL
-# =========================
-print("🚀 ROBÔ RODANDO...")
+# SEU ROBÔ AQUI
+print("🚀 ROBÔ ATIVO")

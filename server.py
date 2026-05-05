@@ -1,12 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import time, uuid
 
 app = FastAPI()
 
 trials = {}
-licenses = {}
 payments = {}
+licenses = {}
 
 # =========================
 # MODELOS
@@ -14,7 +14,10 @@ payments = {}
 class Trial(BaseModel):
     machine: str
 
-class Payment(BaseModel):
+class CreatePayment(BaseModel):
+    email: str
+
+class CheckPayment(BaseModel):
     email: str
 
 class Validate(BaseModel):
@@ -22,14 +25,7 @@ class Validate(BaseModel):
     machine: str
 
 # =========================
-# HOME
-# =========================
-@app.get("/")
-def home():
-    return {"status": "online"}
-
-# =========================
-# TESTE 1H
+# TRIAL
 # =========================
 @app.post("/trial")
 def trial(data: Trial):
@@ -42,44 +38,61 @@ def trial(data: Trial):
     inicio = trials[data.machine]
 
     if now - inicio <= 3600:
-        restante = int(3600 - (now - inicio))
-        return {"status": "active", "restante": restante}
+        return {"status": "active", "restante": int(3600 - (now - inicio))}
 
     return {"status": "expired"}
 
 # =========================
-# CRIAR PAGAMENTO (SIMULADO)
+# CRIAR PAGAMENTO (REAL)
 # =========================
 @app.post("/create-payment")
-def create_payment(data: Payment):
-    payments[data.email] = {"status": "pending"}
+def create_payment(data: CreatePayment):
+
+    payment_id = str(uuid.uuid4())
+
+    payments[data.email] = {
+        "status": "pending",
+        "id": payment_id
+    }
 
     return {
-        "payment_url": "https://google.com",  # troca depois
-        "status": "pending"
+        "payment_url": "https://link.mercadopago.com.br/snipertrader",
+        "payment_id": payment_id
     }
 
 # =========================
-# SIMULAR PAGAMENTO (TESTE)
+# WEBHOOK (MERCADO PAGO)
 # =========================
-@app.get("/approve/{email}")
-def approve(email: str):
-    payments[email] = {"status": "paid"}
-    return {"status": "aprovado"}
+@app.post("/webhook")
+async def webhook(request: Request):
+    data = await request.json()
+
+    # Aqui você vai receber dados do pagamento
+    # (estrutura depende do Mercado Pago real)
+
+    # SIMPLIFICAÇÃO:
+    email = data.get("email")
+
+    if email in payments:
+        payments[email]["status"] = "paid"
+
+    return {"status": "ok"}
 
 # =========================
 # VERIFICAR PAGAMENTO
 # =========================
 @app.post("/check-payment")
-def check_payment(data: Payment):
+def check_payment(data: CheckPayment):
 
-    if payments.get(data.email, {}).get("status") == "paid":
+    pagamento = payments.get(data.email)
 
+    if pagamento and pagamento["status"] == "paid":
+
+        # cria licença automática
         key = str(uuid.uuid4())[:10].upper()
 
         licenses[key] = {
-            "machine": None,
-            "active": True
+            "machine": None
         }
 
         return {"status": "paid", "key": key}
